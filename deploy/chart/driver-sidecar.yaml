@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# Strategic-merge patch that adds the podtemplate driver container to the
+# gateway StatefulSet. The socket lives in a directory the driver creates inside
+# the emptyDir declared in values.yaml under server.extraVolumes.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: openshell
+spec:
+  template:
+    spec:
+      containers:
+        - name: podtemplate-driver
+          # The local e2e image and its pull policy are deployment-specific. Pull policy
+          # Never means the kubelet uses only an image already present on the node.
+          image: localhost/openshell-driver-podtemplate:e2e
+          imagePullPolicy: Never
+          args:
+            - --bind-socket
+            - /run/openshell-driver/podtemplate/driver.sock
+            # The namespace, gateway id and gRPC endpoint below are deployment-specific:
+            # they match the local e2e install.
+            - --sandbox-namespace
+            - openshell
+            - --gateway-id
+            - openshell
+            - --grpc-endpoint
+            - https://openshell.openshell.svc.cluster.local:8080
+            - --client-tls-secret-name
+            - openshell-client-tls
+            - --supervisor-image
+            - ghcr.io/nvidia/openshell/supervisor:0.1.5@sha256:fabcd01f656e9d23df4386f82e80b4f48b90f3452d7d5c58889007643a069161
+            - --sandbox-runtime-image
+            - ghcr.io/nvidia/openshell/sandbox:0.1.5@sha256:e9adf9ecde328122414ad2ee8c6fc5d5b389e4cf168daf4357c46f5a77d55851
+            # The local e2e probe helper image and its pull policy are deployment-specific.
+            - --probe-helper-image
+            - localhost/odp-probe-helper:e2e
+            - --probe-helper-image-pull-policy
+            - Never
+            - --sandbox-service-account
+            - openshell-sandbox
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: driver-socket
+              mountPath: /run/openshell-driver

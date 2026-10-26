@@ -1,0 +1,28 @@
+openshell-driver-podtemplate
+Copyright (c) 2026 Josh Symonds
+
+This product includes software derived from NVIDIA OpenShell
+(https://github.com/NVIDIA/OpenShell), release v0.1.5,
+Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Licensed under the Apache License, Version 2.0.
+
+`crates/openshell-driver-podtemplate/src/template/upstream.rs` is vendored from
+v0.1.5 `crates/openshell-driver-kubernetes/src/`: `driver.rs`, `isolation.rs` and
+`sandbox_runtime.rs`.
+
+`crates/openshell-driver-podtemplate/src/runtime_objects.rs` is vendored from
+v0.1.5 `crates/openshell-driver-kubernetes/src/`: `sandbox_runtime.rs` and
+`driver.rs`.
+
+`crates/openshell-driver-podtemplate/src/auth.rs` and
+`crates/openshell-driver-podtemplate/src/create.rs` are derived from v0.1.5
+`crates/openshell-driver-kubernetes/src/driver.rs`.
+
+`crates/openshell-driver-podtemplate/src/service.rs` is derived from v0.1.5
+`crates/openshell-driver-kubernetes/src/grpc.rs` and `src/main.rs`.
+
+`crates/openshell-driver-podtemplate/src/main.rs` is derived from v0.1.5
+`crates/openshell-driver-kubernetes/src/main.rs`.
+
+`crates/openshell-driver-podtemplate/src/delete.rs` is derived from v0.1.5
+`crates/openshell-driver-kubernetes/src/driver.rs`, its supervisor Pod and generation Secret deletion.

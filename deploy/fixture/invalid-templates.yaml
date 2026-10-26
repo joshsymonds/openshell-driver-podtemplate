@@ -1,0 +1,371 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# PodTemplates that the reject test creates sandboxes from. Each one copies the valid fixture
+# PodTemplate and breaks exactly one rule of DESIGN.md section 6, named by its document's
+# rule number; the test expects the gateway to refuse each with InvalidArgument for that rule.
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-1
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-1
+  spec:
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+      - name: helper
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["sleep", "3600"]
+    volumes:
+      - name: served
+        emptyDir: {}
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-2
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-2
+  spec:
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+    volumes:
+      - name: served
+        emptyDir: {}
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-3
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-3
+  spec:
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          exec:
+            command: ["cat", "/tmp/bundle/ready"]
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+    volumes:
+      - name: served
+        emptyDir: {}
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-4
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-4
+  spec:
+    hostNetwork: true
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+    volumes:
+      - name: served
+        emptyDir: {}
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-5
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-5
+  spec:
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        securityContext:
+          privileged: true
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+    volumes:
+      - name: served
+        emptyDir: {}
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-6
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-6
+  spec:
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+    volumes:
+      - name: served
+        hostPath:
+          path: /tmp/odp-bundle
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-7
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-7
+  spec:
+    securityContext:
+      runAsUser: 0
+      runAsGroup: 1000
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+    volumes:
+      - name: served
+        emptyDir: {}
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-8
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-8
+  spec:
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: openshell-runtime
+            mountPath: /tmp/bundle
+    volumes:
+      - name: openshell-runtime
+        emptyDir: {}
+---
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-rule-9
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-rule-9
+  spec:
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+    volumes:
+      - name: served
+        emptyDir: {}

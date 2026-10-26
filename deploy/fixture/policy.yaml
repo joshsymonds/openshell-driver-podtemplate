@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sandbox policy that the egress tests create sandboxes with. It allows one HTTP endpoint and
+# one raw-TCP endpoint of the echo pod in echo.yaml, each named by its exact in-cluster hostname.
+# Nothing else is allowed: other Service names and pod IP addresses have no rule. The
+# filesystem and Landlock sections repeat the sandbox runtime's restrictive default, because a
+# request that carries a policy replaces that default.
+version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only: [/bin, /usr, /lib, /proc, /dev/urandom, /etc, /var/log]
+  read_write: [/tmp, /dev/null]
+landlock:
+  compatibility: best_effort
+
+network_policies:
+  echo_http:
+    name: echo-http
+    endpoints:
+      - host: odp-echo-http.openshell.svc.cluster.local
+        port: 8080
+        protocol: rest
+        access: read-only
+    binaries:
+      - { path: "/**" }
+  echo_tcp:
+    name: echo-tcp
+    endpoints:
+      - host: odp-echo-tcp.openshell.svc.cluster.local
+        port: 9000
+        protocol: tcp
+    binaries:
+      - { path: "/**" }

@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# Overrides for the stock OpenShell v0.1.5 chart. Attaches the gateway to the
+# podtemplate compute driver over a Unix socket. post-render.sh adds the driver
+# sidecar and its RBAC. Both containers mount the emptyDir below; the driver
+# creates the socket's own directory inside it, because it binds only under a
+# directory its uid owns.
+
+server:
+  auth:
+    # Local e2e cluster only. Upstream OpenShell v0.1.5 marks this setting UNSAFE
+    # (deploy/helm/openshell/values.yaml): it accepts unauthenticated CLI and user
+    # requests as a local developer principal, is intended only for trusted local
+    # Skaffold/k3d development or a fully trusted fronting proxy, and must stay
+    # false for shared or production clusters.
+    allowUnauthenticatedUsers: true
+  extraVolumes:
+    - name: driver-socket
+      emptyDir: {}
+  extraVolumeMounts:
+    - name: driver-socket
+      mountPath: /run/openshell-driver
+
+agentSandbox:
+  preflight:
+    enabled: false
+
+gatewayConfig:
+  "openshell.gateway":
+    compute_driver: podtemplate
+  "openshell.drivers.podtemplate":
+    socket_path: /run/openshell-driver/podtemplate/driver.sock
+    allow_driver_config: true
+    resource_admission:
+      enabled: false

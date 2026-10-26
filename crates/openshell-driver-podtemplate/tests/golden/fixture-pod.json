@@ -1,0 +1,201 @@
+{
+  "spdx": [
+    "SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds",
+    "SPDX-License-Identifier: Apache-2.0"
+  ],
+  "pod": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "metadata": {
+      "name": "sandbox-golden",
+      "namespace": "agents",
+      "labels": {
+        "app.kubernetes.io/name": "agent",
+        "openshell.ai/boundary-role": "workload",
+        "openshell.ai/boundary-pair": "pair-golden"
+      },
+      "annotations": {
+        "example.com/owner": "team-a"
+      }
+    },
+    "spec": {
+      "restartPolicy": "Never",
+      "dnsPolicy": "None",
+      "dnsConfig": {
+        "nameservers": ["127.0.0.53"],
+        "options": [
+          {"name": "ndots", "value": "5"},
+          {"name": "timeout", "value": "2"},
+          {"name": "attempts", "value": "2"}
+        ]
+      },
+      "automountServiceAccountToken": false,
+      "hostNetwork": false,
+      "hostPID": false,
+      "hostIPC": false,
+      "shareProcessNamespace": false,
+      "securityContext": {
+        "runAsUser": 1001,
+        "runAsGroup": 1002,
+        "runAsNonRoot": true,
+        "fsGroup": 1002,
+        "fsGroupChangePolicy": "OnRootMismatch",
+        "supplementalGroups": [],
+        "seccompProfile": {"type": "RuntimeDefault"},
+        "sysctls": [
+          {"name": "net.ipv4.ip_unprivileged_port_start", "value": "0"}
+        ]
+      },
+      "schedulingGates": [
+        {"name": "openshell.ai/bootstrap"}
+      ],
+      "nodeSelector": {
+        "kubernetes.io/os": "linux",
+        "example.com/pool": "agents"
+      },
+      "tolerations": [
+        {"key": "example.com/dedicated", "operator": "Equal", "value": "agents", "effect": "NoSchedule"}
+      ],
+      "affinity": {
+        "nodeAffinity": {
+          "requiredDuringSchedulingIgnoredDuringExecution": {
+            "nodeSelectorTerms": [
+              {
+                "matchExpressions": [
+                  {"key": "example.com/zone", "operator": "In", "values": ["a", "b"]}
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "priorityClassName": "agents-high",
+      "runtimeClassName": "example-sandbox-runtime",
+      "serviceAccountName": "agent-runner",
+      "imagePullSecrets": [
+        {"name": "example-registry-pull"}
+      ],
+      "volumes": [
+        {"name": "scratch", "emptyDir": {}},
+        {"name": "config", "configMap": {"name": "example-config"}},
+        {"name": "creds", "secret": {"secretName": "example-secret"}},
+        {"name": "data", "persistentVolumeClaim": {"claimName": "example-claim"}},
+        {"name": "openshell-runtime", "emptyDir": {"medium": "Memory"}},
+        {"name": "openshell-runtime-state", "emptyDir": {"medium": "Memory"}},
+        {"name": "openshell-sandbox-bootstrap", "secret": {"secretName": "example-bootstrap", "defaultMode": 288}},
+        {"name": "openshell-pod-identity", "downwardAPI": {"items": [{"path": "uid", "fieldRef": {"fieldPath": "metadata.uid"}}]}},
+        {"name": "openshell-run", "emptyDir": {"medium": "Memory"}},
+        {"name": "odp-probe", "emptyDir": {"medium": "Memory"}}
+      ],
+      "initContainers": [
+        {
+          "name": "prepare",
+          "image": "registry.example.com/agents/prepare:1",
+          "command": ["/bin/sh", "-c", "echo ready > /scratch/ready"],
+          "securityContext": {
+            "runAsUser": 2000,
+            "runAsGroup": 2000,
+            "runAsNonRoot": true,
+            "allowPrivilegeEscalation": false,
+            "capabilities": {"drop": ["ALL"]}
+          },
+          "volumeMounts": [
+            {"name": "scratch", "mountPath": "/scratch"}
+          ]
+        },
+        {
+          "name": "odp-probe-install",
+          "image": "registry.example.com/openshell/odp-probe:1",
+          "imagePullPolicy": "IfNotPresent",
+          "command": ["/odp-probe", "install", "/.openshell/probe"],
+          "securityContext": {
+            "runAsUser": 1001,
+            "runAsGroup": 1002,
+            "runAsNonRoot": true,
+            "readOnlyRootFilesystem": true,
+            "allowPrivilegeEscalation": false,
+            "capabilities": {"drop": ["ALL"]}
+          },
+          "volumeMounts": [
+            {"name": "odp-probe", "mountPath": "/.openshell/probe"}
+          ]
+        },
+        {
+          "name": "openshell-sandbox-bootstrap",
+          "image": "registry.example.com/openshell/runtime:1",
+          "imagePullPolicy": "Always",
+          "command": ["/openshell-sandbox", "bootstrap"],
+          "securityContext": {
+            "runAsUser": 1001,
+            "runAsGroup": 1002,
+            "runAsNonRoot": true,
+            "readOnlyRootFilesystem": true,
+            "allowPrivilegeEscalation": false,
+            "capabilities": {"drop": ["ALL"]}
+          },
+          "volumeMounts": [
+            {"name": "openshell-sandbox-bootstrap", "mountPath": "/.openshell/bootstrap-input", "readOnly": true},
+            {"name": "openshell-runtime", "mountPath": "/.openshell/runtime"},
+            {"name": "openshell-runtime-state", "mountPath": "/.openshell/state"}
+          ]
+        }
+      ],
+      "containers": [
+        {
+          "name": "sandbox",
+          "image": "registry.example.com/agents/sandbox:1",
+          "imagePullPolicy": "IfNotPresent",
+          "command": ["/.openshell/runtime/openshell-sandbox", "--bootstrap", "/.openshell/state/bootstrap/boundary.json"],
+          "env": [
+            {"name": "OPENSHELL_LOG_LEVEL", "value": "info"},
+            {"name": "AGENT_MODE", "value": "batch"},
+            {"name": "API_TOKEN", "valueFrom": {"secretKeyRef": {"name": "example-secret", "key": "api-token"}}},
+            {"name": "OPENSHELL_TELEMETRY_ENABLED", "value": "false"},
+            {"name": "OPENSHELL_OCI_IMAGE_USER", "value": ""},
+            {"name": "OPENSHELL_SANDBOX_UID", "value": "1001"},
+            {"name": "OPENSHELL_SANDBOX_GID", "value": "1002"}
+          ],
+          "envFrom": [
+            {"configMapRef": {"name": "example-env"}}
+          ],
+          "resources": {
+            "requests": {"cpu": "250m", "memory": "256Mi"},
+            "limits": {"cpu": "1", "memory": "1Gi"}
+          },
+          "ports": [
+            {"name": "sandbox-control", "containerPort": 2222, "protocol": "TCP"}
+          ],
+          "readinessProbe": {
+            "exec": {
+              "command": ["/.openshell/probe/odp-probe", "http-get", "--port", "8080", "--path", "/healthz", "--header", "X-Probe:ready"]
+            },
+            "periodSeconds": 10
+          },
+          "livenessProbe": {
+            "exec": {
+              "command": ["/.openshell/probe/odp-probe", "tcp", "--port", "9000"]
+            },
+            "initialDelaySeconds": 5
+          },
+          "securityContext": {
+            "runAsUser": 1001,
+            "runAsGroup": 1002,
+            "runAsNonRoot": true,
+            "allowPrivilegeEscalation": false,
+            "capabilities": {"drop": ["ALL"]}
+          },
+          "volumeMounts": [
+            {"name": "config", "mountPath": "/etc/agent", "readOnly": true},
+            {"name": "creds", "mountPath": "/etc/creds", "readOnly": true},
+            {"name": "data", "mountPath": "/data"},
+            {"name": "openshell-runtime", "mountPath": "/.openshell/runtime", "readOnly": true},
+            {"name": "openshell-runtime-state", "mountPath": "/.openshell/state"},
+            {"name": "openshell-pod-identity", "mountPath": "/.openshell/pod-identity", "readOnly": true},
+            {"name": "openshell-run", "mountPath": "/run"},
+            {"name": "odp-probe", "mountPath": "/.openshell/probe", "readOnly": true}
+          ]
+        }
+      ]
+    }
+  }
+}

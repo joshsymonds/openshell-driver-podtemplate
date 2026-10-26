@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+.devenv/
+.devenv.flake.nix
+.direnv/
+target/

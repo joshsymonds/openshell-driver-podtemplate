@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+inputs:
+  nixpkgs:
+    # Pinned to one nixpkgs commit. A NixOS flake that locks the same commit
+    # shares store paths with this devenv. Bump to match a flake.lock with:
+    # jq -r '.nodes.nixpkgs.locked.rev' path/to/flake.lock
+    url: github:NixOS/nixpkgs/c5c4a43b0e8056328ec4529f735cabdb8f1942bb
+  # Supplies the Rust toolchain for languages.rust.toolchainFile.
+  rust-overlay:
+    url: github:oxalica/rust-overlay
+    inputs:
+      nixpkgs:
+        follows: nixpkgs

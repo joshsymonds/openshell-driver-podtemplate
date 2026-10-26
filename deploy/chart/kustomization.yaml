@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kustomization applied by post-render.sh. post-render.sh copies this file next
+# to driver-sidecar.yaml and rbac.yaml and writes the Helm output to rendered.yaml.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rendered.yaml
+  - rbac.yaml
+patches:
+  - path: driver-sidecar.yaml
+    target:
+      group: apps
+      version: v1
+      kind: StatefulSet
+      name: openshell

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+
+# odp-e2e runs the e2e_gateway binary in parallel. Each test below takes every thread, so
+# nextest runs it alone, for the reason given above it.
+
+# Restarts the driver and replaces the gateway pod, and compares the UIDs of every object
+# in the namespace.
+[[profile.default.overrides]]
+filter = 'binary(e2e_gateway) and test(=e2e_gateway_restart)'
+threads-required = "num-test-threads"
+
+# Compares the UIDs of every object in the namespace before and after a rejected create.
+[[profile.default.overrides]]
+filter = 'binary(e2e_gateway) and test(=e2e_gateway_reject)'
+threads-required = "num-test-threads"
+
+# Times create-to-ready latency, which parallel tests would skew.
+[[profile.default.overrides]]
+filter = 'binary(e2e_gateway) and test(=e2e_gateway_ready)'
+threads-required = "num-test-threads"
+
+# Reads every driver object in the namespace and the driver's whole log.
+[[profile.default.overrides]]
+filter = 'binary(e2e_gateway) and test(=e2e_gateway_credentials)'
+threads-required = "num-test-threads"

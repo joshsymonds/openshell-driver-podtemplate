@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# Bundle that the fixture PodTemplate mounts. Its init container copies the two files into
+# the emptyDir that the sandbox container serves. The `ready` file makes /ready answer 200.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odp-fixture-bundle
+  namespace: openshell
+data:
+  index.html: |
+    odp fixture bundle
+  ready: ""

@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+[toolchain]
+channel = "1.95.0"
+# rustfmt, rust-src and rust-analyzer match upstream OpenShell v0.1.5.
+# clippy is a gate; llvm-tools-preview supplies llvm-profdata and llvm-cov
+# for cargo-llvm-cov.
+components = ["rustfmt", "rust-src", "rust-analyzer", "clippy", "llvm-tools-preview"]

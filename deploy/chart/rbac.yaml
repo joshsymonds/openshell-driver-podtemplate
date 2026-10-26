@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# RBAC for the podtemplate driver sidecar. The sidecar runs under the gateway
+# pod's ServiceAccount, openshell in namespace openshell, so these bindings
+# grant that ServiceAccount exactly the driver's rules.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openshell-podtemplate
+  # Deployment-specific: the namespace and ServiceAccount named in this file
+  # (openshell) match the local e2e install and must change with it.
+  namespace: openshell
+rules:
+  - apiGroups: [""]
+    resources: ["podtemplates"]
+    verbs: ["get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases/finalizers"]
+    verbs: ["update"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "patch", "delete"]
+  # Stop lists and deletes the sandbox's generation bootstrap Secrets, and Start reads its
+  # start-inputs Secret. The same ServiceAccount already creates pods in this namespace, and such
+  # a pod can mount any Secret there, so Secret read adds no reach.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openshell-podtemplate
+  # Deployment-specific: the namespace is the local e2e install's (see the Role above).
+  namespace: openshell
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openshell-podtemplate
+subjects:
+  # Deployment-specific: the ServiceAccount and namespace are the local e2e install's.
+  - kind: ServiceAccount
+    name: openshell
+    namespace: openshell
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openshell-podtemplate
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: openshell-podtemplate
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: openshell-podtemplate
+subjects:
+  # Deployment-specific: the ServiceAccount and namespace are the local e2e install's.
+  - kind: ServiceAccount
+    name: openshell
+    namespace: openshell

@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# Echo targets of the egress tests. One pod serves its body with httpd on port 8080 and echoes
+# each TCP connection on port 9000. Two Services name the HTTP port: odp-echo-http is named by
+# the sandbox policy, odp-echo-unnamed is not. odp-echo-tcp has a fixed ClusterIP, because the
+# egress init container of podtemplate-init-egress.yaml runs before the sandbox runtime starts
+# and so cannot resolve names. The address lies in kind's default Service range.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: odp-echo
+  namespace: openshell
+  labels:
+    app: odp-echo
+spec:
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+  containers:
+    - name: echo
+      image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+      command: ["sh", "-c"]
+      args:
+        - >-
+          mkdir -p /tmp/www &&
+          echo odp-echo-http > /tmp/www/index.html &&
+          httpd -p 8080 -h /tmp/www &&
+          exec tcpsvd -E 0.0.0.0 9000 cat
+      ports:
+        - name: http
+          containerPort: 8080
+        - name: tcp
+          containerPort: 9000
+      readinessProbe:
+        httpGet:
+          path: /index.html
+          port: 8080
+      resources:
+        requests:
+          cpu: 50m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odp-echo-http
+  namespace: openshell
+spec:
+  selector:
+    app: odp-echo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odp-echo-tcp
+  namespace: openshell
+spec:
+  clusterIP: 10.96.200.9
+  selector:
+    app: odp-echo
+  ports:
+    - name: tcp
+      port: 9000
+      targetPort: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odp-echo-unnamed
+  namespace: openshell
+spec:
+  selector:
+    app: odp-echo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

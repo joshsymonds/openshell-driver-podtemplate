@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 Josh Symonds
+# SPDX-License-Identifier: Apache-2.0
+#
+# PodTemplate that several e2e_gateway tests create their sandboxes from. One busybox container
+# serves the bundle with httpd on port 8080 and reports ready while /ready exists. The
+# served emptyDir sits under /tmp, the one writable path of the default sandbox policy. The
+# image has no working directory, so the sandbox-home emptyDir provides /sandbox, where the
+# sandbox runtime starts the main process.
+apiVersion: v1
+kind: PodTemplate
+metadata:
+  name: odp-fixture
+  namespace: openshell
+template:
+  metadata:
+    labels:
+      app: odp-fixture
+    annotations:
+      odp.fixture/owner: smoke
+  spec:
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      runAsNonRoot: true
+    nodeSelector:
+      kubernetes.io/os: linux
+    tolerations:
+      - key: odp-fixture
+        operator: Exists
+        effect: NoSchedule
+    initContainers:
+      - name: stage-bundle
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["sh", "-c", "cp -L /bundle/index.html /bundle/ready /tmp/bundle/"]
+        volumeMounts:
+          - name: bundle
+            mountPath: /bundle
+            readOnly: true
+          - name: served
+            mountPath: /tmp/bundle
+    containers:
+      - name: agent
+        image: docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+        command: ["httpd"]
+        args: ["-f", "-p", "8080", "-h", "/tmp/bundle"]
+        env:
+          - name: FIXTURE_PLAIN
+            value: fixture-plain-value
+          - name: FIXTURE_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: odp-fixture-credential
+                key: token
+        ports:
+          - name: http
+            containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        volumeMounts:
+          - name: served
+            mountPath: /tmp/bundle
+          - name: sandbox-home
+            mountPath: /sandbox
+    volumes:
+      - name: bundle
+        configMap:
+          name: odp-fixture-bundle
+      - name: served
+        emptyDir: {}
+      - name: sandbox-home
+        emptyDir: {}
