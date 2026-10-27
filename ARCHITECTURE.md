@@ -15,31 +15,50 @@ One sandbox is one Lease record and the Kubernetes objects that record owns. Two
 
 ```mermaid
 flowchart TB
-    gateway["OpenShell gateway"]
-    subgraph cluster["Kubernetes cluster"]
-        api["Kubernetes API server"]
-        subgraph driver["Driver sidecar, podtemplate"]
-            service["ComputeDriver gRPC service"]
-        end
-        subgraph ns["Sandbox namespace"]
-            fences["Namespace fences, shared<br/>openshell-sandbox-workloads<br/>openshell-sandbox-supervisors"]
-            lease["Lease record<br/>one per sandbox, the owner"]
-            boundary["Boundary Service<br/>boundary port, selects workload pod"]
-            supervisor["Supervisor pod<br/>/openshell-supervisor"]
-            workload["Workload pod<br/>openshell-sandbox as PID 1, scheduling-gated"]
-            secrets["Bootstrap Secrets<br/>start-inputs Secret"]
-        end
+  classDef driver fill:#fde68a,stroke:#b45309,color:#1f2937
+  classDef openshell fill:#d9f99d,stroke:#4d7c0f,color:#1f2937
+  classDef yours fill:#bfdbfe,stroke:#1d4ed8,color:#1f2937
+
+  subgraph key["Key"]
+    direction LR
+    k1["this driver and the objects it creates"]:::driver
+    k2["upstream OpenShell, unchanged"]:::openshell
+    k3["from the PodTemplate"]:::yours
+    k1 ~~~ k2 ~~~ k3
+  end
+
+  gateway["OpenShell gateway"]:::openshell
+  drv["podtemplate driver sidecar<br/>ComputeDriver gRPC service"]:::driver
+  subgraph ns["Sandbox namespace, written through the Kubernetes API"]
+    fences["Namespace fences<br/>shared by every sandbox<br/><br/>workload pods: ingress from<br/>supervisor pods only, no egress<br/><br/>supervisor pods: all egress"]:::driver
+    subgraph owned["Lease record, one per sandbox, which owns everything in this box"]
+      secrets["Bootstrap Secrets<br/>start-inputs Secret"]:::driver
+      subgraph suppod["Supervisor pod"]
+        sup["/openshell-supervisor"]:::openshell
+      end
+      svc["Boundary Service<br/>boundary port"]:::driver
+      subgraph wlpod["Workload pod, scheduling-gated until bootstrap"]
+        rt["openshell-sandbox<br/>PID 1"]:::openshell
+        app["template's command"]:::yours
+      end
     end
-    gateway -->|"gRPC over Unix socket"| service
-    service -->|"creates, reads, deletes"| api
-    lease -->|"owns"| boundary
-    lease -->|"owns"| supervisor
-    lease -->|"owns"| workload
-    lease -->|"owns"| secrets
-    supervisor -->|"session to gateway endpoint"| gateway
-    supervisor -->|"boundary port"| boundary
-    boundary -->|"selects"| workload
-    fences -.->|"ingress from supervisor pods only"| workload
+  end
+
+  key ~~~ gateway
+  gateway -->|"gRPC over a Unix socket"| drv
+  drv -.->|"creates or validates"| fences
+  drv -.->|"creates, reads, deletes"| owned
+  gateway <-->|"supervisor session"| sup
+  sup -->|"boundary port"| svc
+  svc -->|"selects"| rt
+  rt -->|"starts"| app
+  sup ~~~ secrets
+
+  style key fill:#ffffff,stroke:#9ca3af,color:#1f2937
+  style ns fill:#f9fafb,stroke:#6b7280,color:#1f2937
+  style owned fill:#fffbeb,stroke:#b45309,stroke-dasharray:4 3,color:#1f2937
+  style suppod fill:#fef3c7,stroke:#b45309,color:#1f2937
+  style wlpod fill:#fef3c7,stroke:#b45309,color:#1f2937
 ```
 
 Where the cluster CNI enforces ingress and egress `NetworkPolicy`, the workload pod has no network path of its own. Kubernetes accepts policy objects without confirming enforcement, so operators must verify CNI support (upstream `crates/openshell-driver-kubernetes/README.md` lines 102-104 and `deploy/helm/openshell/README.md` lines 130-134). The workload fence allows ingress only from supervisor pods on the boundary port, and it allows no egress (`workload_fence` in `src/runtime_objects.rs`, upstream `crates/openshell-driver-kubernetes/src/isolation.rs` lines 103-160). The supervisor egress fence allows all egress from supervisor pods. Upstream's comment on the workload fence says that the supervisor remains responsible for opening policy-approved upstream connections (upstream `crates/openshell-driver-kubernetes/src/isolation.rs` lines 98-101).
@@ -68,10 +87,18 @@ Creating a sandbox takes these steps, in this order (`create_sandbox` and `creat
 
 ```mermaid
 sequenceDiagram
-    participant GW as OpenShell gateway
-    participant DR as Driver
-    participant K8S as Kubernetes API
-    participant SUP as Supervisor pod
+    box rgb(236,252,203) upstream OpenShell
+        participant GW as OpenShell gateway
+    end
+    box rgb(254,243,199) this driver
+        participant DR as podtemplate driver
+    end
+    box rgb(243,244,246) Kubernetes
+        participant K8S as Kubernetes API
+    end
+    box rgb(236,252,203) upstream OpenShell
+        participant SUP as OpenShell supervisor
+    end
     GW->>DR: CreateSandbox
     DR->>DR: Validate driver config, name, template, rules
     DR->>DR: Decode launch authentication
@@ -201,6 +228,42 @@ Start (`start_sandbox` in `src/create.rs`):
 - It reads the original request from the start-inputs Secret, refusing with `FailedPrecondition` a Secret that its Lease does not control or that holds another sandbox's ID (`read_start_inputs` in `src/create.rs`), and validates the PodTemplate again.
 - It stops whatever runtime remains, creates the fences, and creates a fresh runtime with the create sequence, minus the start-inputs Secret.
 - A failure does not delete the record.
+
+### What survives Stop
+
+The gateway reports the same phases for this driver and for the stock Kubernetes driver, Stopped after a Stop and Ready again after a Start. What the two drivers keep across a Stop differs. The stock driver suspends its agent-sandbox resource and keeps a per-sandbox workspace PVC mounted at `/sandbox`, so a started sandbox sees its earlier files (upstream `crates/openshell-driver-kubernetes/README.md` lines 113-116 and 145-158). This driver creates no workspace volume. Its pods are deleted with their emptyDir volumes and container filesystems, so a started sandbox begins with a fresh filesystem. A `persistentVolumeClaim` that the template names is not owned by the Lease and survives, but every sandbox cloned from that template mounts the same claim.
+
+```mermaid
+flowchart TB
+  classDef run fill:#f3f4f6,stroke:#4b5563,color:#1f2937
+  classDef kept fill:#d1fae5,stroke:#047857,color:#1f2937
+  classDef gone fill:#fee2e2,stroke:#b91c1c,color:#1f2937,stroke-dasharray:4 3
+  classDef fresh fill:#e0f2fe,stroke:#0369a1,color:#1f2937
+
+  subgraph stock["Stock Kubernetes driver, v0.1.5"]
+    s_run["Running sandbox"]:::run
+    s_gone["Deleted<br/>workload and supervisor pods,<br/>bootstrap Secrets"]:::gone
+    s_kept["Kept<br/>suspended Sandbox resource,<br/>workspace PVC at /sandbox"]:::kept
+    s_new["Running again<br/>new pods mount the same PVC,<br/>earlier files under /sandbox are back"]:::fresh
+    s_run -->|"Stop"| s_gone
+    s_run -->|"Stop"| s_kept
+    s_kept -->|"Start"| s_new
+  end
+  subgraph ours["podtemplate driver"]
+    o_run["Running sandbox"]:::run
+    o_gone["Deleted<br/>workload and supervisor pods,<br/>with their emptyDir volumes and<br/>container filesystems,<br/>boundary Service, bootstrap Secrets"]:::gone
+    o_kept["Kept<br/>Lease, start-inputs Secret,<br/>any PVC the template names, shared"]:::kept
+    o_new["Running again<br/>new pods, Service and Secrets<br/>from the saved request,<br/>fresh filesystem"]:::fresh
+    o_run -->|"Stop"| o_gone
+    o_run -->|"Stop"| o_kept
+    o_kept -->|"Start"| o_new
+  end
+
+  style stock fill:#ffffff,stroke:#9ca3af,color:#1f2937
+  style ours fill:#fffbeb,stroke:#b45309,color:#1f2937
+```
+
+Both drivers keep the namespace fences, which no sandbox owns.
 
 ## Restart, reconcile and watch
 

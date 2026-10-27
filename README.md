@@ -17,25 +17,96 @@ This driver takes the workload's pod spec from an existing PodTemplate. A platfo
 
 ## How it fits together
 
+### Where it sits in OpenShell
+
+The diagram colors each part by who provides it. Only the amber parts come from this repository. The gateway, the supervisor and the sandbox runtime are upstream OpenShell, unchanged. The driver replaces the built-in Kubernetes driver behind the gateway's `compute_driver` setting. It runs as a sidecar in the gateway pod, and the gateway calls it over a Unix socket. The driver builds the pods and the Service, and OpenShell's own binaries run inside them. Once a sandbox is running, its traffic never passes through the driver.
+
+```mermaid
+flowchart TB
+  classDef driver fill:#fde68a,stroke:#b45309,color:#1f2937
+  classDef openshell fill:#d9f99d,stroke:#4d7c0f,color:#1f2937
+  classDef yours fill:#bfdbfe,stroke:#1d4ed8,color:#1f2937
+  classDef other fill:#e5e7eb,stroke:#4b5563,color:#1f2937
+
+  subgraph key["Key"]
+    direction LR
+    k1["this driver and the objects it creates"]:::driver
+    k2["upstream OpenShell, unchanged"]:::openshell
+    k3["yours"]:::yours
+    k4["outside OpenShell"]:::other
+    k1 ~~~ k2 ~~~ k3 ~~~ k4
+  end
+
+  user["OpenShell CLI or SDK"]:::openshell
+  subgraph gwpod["Gateway pod"]
+    gw["OpenShell gateway<br/>API, sandbox records, policy"]:::openshell
+    drv["podtemplate driver<br/>sidecar container"]:::driver
+  end
+  pt["Your PodTemplate"]:::yours
+  subgraph sandbox["One sandbox, built by the driver through the Kubernetes API"]
+    subgraph suppod["Supervisor pod"]
+      sup["OpenShell supervisor"]:::openshell
+    end
+    svc["Boundary Service"]:::driver
+    subgraph wlpod["Workload pod, cloned from your PodTemplate"]
+      rt["OpenShell sandbox runtime<br/>PID 1"]:::openshell
+      app["Your command"]:::yours
+    end
+  end
+  net["External network"]:::other
+
+  key ~~~ user
+  user -->|"create, connect, delete"| gw
+  gw -->|"ComputeDriver gRPC"| drv
+  pt -->|"read"| drv
+  drv -.->|"creates, watches, deletes"| sandbox
+  gw <-->|"supervisor session"| sup
+  sup -->|"boundary port"| svc
+  svc --> rt
+  rt -->|"starts"| app
+  sup -->|"policy-checked egress"| net
+
+  style sandbox fill:#fffbeb,stroke:#b45309,stroke-dasharray:4 3,color:#1f2937
+  style suppod fill:#fef3c7,stroke:#b45309,color:#1f2937
+  style wlpod fill:#fef3c7,stroke:#b45309,color:#1f2937
+  style gwpod fill:#f3f4f6,stroke:#6b7280,color:#1f2937
+  style key fill:#ffffff,stroke:#9ca3af,color:#1f2937
+```
+
+The workload pod has no network path of its own: only the supervisor reaches it, and its outbound traffic leaves through the supervisor, which checks it against OpenShell policy. This holds only when the cluster CNI enforces the namespace NetworkPolicy described below ([Install](#install)).
+
+### What the driver does for each call
+
+The gateway drives every sandbox through the `ComputeDriver` RPCs. The driver turns each call into Kubernetes API operations. `ValidateSandboxCreate` runs the same template checks as `CreateSandbox` and creates nothing.
+
 ```mermaid
 flowchart LR
-  gw["OpenShell gateway"]
-  drv["podtemplate driver<br/>sidecar container"]
-  api["Kubernetes API"]
-  wl["workload pod<br/>sandbox container"]
-  sup["supervisor pod"]
-  svc["boundary Service<br/>selects workload pod"]
-  fence["fence NetworkPolicy<br/>workload: no egress when the CNI enforces it,<br/>ingress from supervisor only"]
-  ext["external network"]
+  classDef driver fill:#fde68a,stroke:#b45309,color:#1f2937
+  classDef openshell fill:#d9f99d,stroke:#4d7c0f,color:#1f2937
+  classDef other fill:#e5e7eb,stroke:#4b5563,color:#1f2937
 
-  gw -->|"gRPC over Unix socket"| drv
-  drv -->|"Lease, pods, Services, Secrets"| api
-  api --> wl
-  api --> sup
-  sup -->|"boundary port"| svc
-  svc --> wl
-  fence -.->|"applies to"| wl
-  sup -->|"policy-checked egress"| ext
+  gw["OpenShell gateway"]:::openshell
+  subgraph drv["podtemplate driver"]
+    create["Validate the named PodTemplate, clone it into a workload pod,<br/>create the supervisor pod, boundary Service and Secrets,<br/>all owned by one Lease"]:::driver
+    stopstart["Stop: delete the pods, Service and Secrets, keep the Lease<br/>Start: recreate them from the saved request"]:::driver
+    del["Delete the Lease,<br/>garbage collection removes the rest"]:::driver
+    watch["Read Leases and pods,<br/>report each sandbox's Ready condition"]:::driver
+    auth["Check the supervisor's token with a TokenReview,<br/>then check its pod and Lease"]:::driver
+  end
+  api["Kubernetes API"]:::other
+
+  gw -->|"CreateSandbox"| create
+  gw -->|"StopSandbox, StartSandbox"| stopstart
+  gw -->|"DeleteSandbox"| del
+  gw -->|"GetSandbox, ListSandboxes,<br/>WatchSandboxes"| watch
+  gw -->|"AuthenticateSandbox"| auth
+  create --> api
+  stopstart --> api
+  del --> api
+  watch --> api
+  auth --> api
+
+  style drv fill:#fffbeb,stroke:#b45309,color:#1f2937
 ```
 
 Each sandbox owns the objects below. The driver creates them in its sandbox namespace, and `<id>` is the sandbox ID in lowercase.
@@ -145,6 +216,45 @@ The driver rejects a template that breaks any of these rules. The first broken r
 
 ### What the driver keeps and changes
 
+The diagram uses the colors of [Where it sits in OpenShell](#where-it-sits-in-openshell). Each part of the workload pod is colored by who decides its value: your template, the driver, or the OpenShell runtime.
+
+```mermaid
+flowchart LR
+  classDef driver fill:#fde68a,stroke:#b45309,color:#1f2937
+  classDef openshell fill:#d9f99d,stroke:#4d7c0f,color:#1f2937
+  classDef yours fill:#bfdbfe,stroke:#1d4ed8,color:#1f2937
+  classDef other fill:#e5e7eb,stroke:#4b5563,color:#1f2937
+
+  subgraph tpl["Your PodTemplate"]
+    t_keep["annotations, resources,<br/>scheduling fields, runtimeClassName,<br/>serviceAccountName"]:::yours
+    t_vol["volumes"]:::yours
+    t_ext["labels, init containers, env"]:::yours
+    t_cmd["sandbox container<br/>command and args"]:::yours
+    t_probe["httpGet and tcpSocket probes"]:::yours
+    t_fence["name, scheduling gates,<br/>security contexts, host namespaces,<br/>DNS, ports, restartPolicy"]:::yours
+  end
+  subgraph pod["Workload pod"]
+    p_keep["the same values"]:::yours
+    p_vol["your volumes,<br/>plus the runtime volumes"]:::yours
+    p_ext["your entries, plus the boundary labels,<br/>the runtime init container and OpenShell env;<br/>other OPENSHELL_* env is dropped"]:::yours
+    p_cmd["the main process,<br/>started by the OpenShell sandbox runtime"]:::openshell
+    p_probe["exec probes that run<br/>the odp-probe helper"]:::driver
+    p_fence["the sandbox fence: sandbox name, bootstrap gate,<br/>sandbox UID and GID, host namespaces off,<br/>no ServiceAccount token, control port only,<br/>restartPolicy Never"]:::driver
+  end
+  stop["Stop deletes the pod.<br/>emptyDir volumes and the container<br/>filesystem are lost. A persistentVolumeClaim<br/>survives, shared by every sandbox<br/>cloned from this template."]:::other
+
+  t_keep -->|"kept"| p_keep
+  t_vol -->|"extended"| p_vol
+  t_ext -->|"extended"| p_ext
+  t_cmd -->|"moved"| p_cmd
+  t_probe -->|"rewritten"| p_probe
+  t_fence -->|"replaced"| p_fence
+  p_vol -.->|"on Stop"| stop
+
+  style tpl fill:#eff6ff,stroke:#1d4ed8,color:#1f2937
+  style pod fill:#fffbeb,stroke:#b45309,color:#1f2937
+```
+
 The driver copies the template. It keeps annotations, resources, `nodeSelector`, `tolerations`, `affinity`, `priorityClassName`, `runtimeClassName` and `serviceAccountName` unchanged. Init containers and volumes keep the template's entries and gain runtime entries. Labels keep the template's entries and gain the two boundary labels, which replace any template label with the same key.
 
 It changes the following.
@@ -186,7 +296,8 @@ The `EnsureWorkspace` and `DeleteWorkspace` RPCs return `Unimplemented`.
 - Probes are loopback exec probes. Workload sockets are bound to the loopback device, so kubelet cannot reach them. The driver rewrites `httpGet` and `tcpSocket` probes when it creates the pod, and kubelet runs each exec probe in the sandbox container.
 - `ExecSandbox` sessions start from a rebuilt environment. The template's container environment, including `valueFrom` entries, reaches only the main process.
 - Link-local addresses are always blocked by OpenShell, whatever the policy says. Metadata-server workload identity is therefore unsupported.
-- The driver has no warm pools, late binding or in-place resume. Stop deletes the pods and keeps the Lease and the start-inputs Secret. Start creates a fresh runtime for the same Lease. Delete deletes the Lease in the foreground. The Lease stays, reported as deleting, until every object it owns is gone. Each owned object carries `blockOwnerDeletion`, so garbage collection removes them before the Lease.
+- The driver has no warm pools, late binding or in-place resume. Stop deletes the pods and keeps the Lease and the start-inputs Secret. Start creates a fresh runtime for the same Lease.
+- Stop does not keep the workload's files. Deleting the pods discards their emptyDir volumes and container filesystems, so Start begins with a fresh filesystem. A `persistentVolumeClaim` volume that the template names survives Stop, but every sandbox cloned from that template mounts the same claim. The stock Kubernetes driver keeps a per-sandbox workspace PVC at `/sandbox` across Stop (upstream `crates/openshell-driver-kubernetes/README.md` lines 145-158), and OpenShell's documentation says Stop keeps the persistent workspace (upstream `docs/how-it-works/sandboxes/overview.mdx` lines 981-994). See [What survives Stop](ARCHITECTURE.md#what-survives-stop). Delete deletes the Lease in the foreground. The Lease stays, reported as deleting, until every object it owns is gone. Each owned object carries `blockOwnerDeletion`, so garbage collection removes them before the Lease.
 - Resource admission is disabled, and the driver refuses to start with it enabled. CPU, memory and GPU limits are unsupported, so the template author owns `resources`.
 - The driver is pinned to OpenShell v0.1.5 by the `v0.1.5` tag of each upstream crate in `Cargo.toml`.
 - The chart values are end-to-end and demo settings. They set `allowUnauthenticatedUsers: true`, use the local `localhost/...:e2e` images with `imagePullPolicy: Never`, and hard-code the `openshell` namespace and the `openshell` ServiceAccount in `driver-sidecar.yaml` and `rbac.yaml`.
